@@ -1,0 +1,19 @@
+# Sensitive credentials & environment configurations
+.env
+*.env
+
+# Python build artifacts and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE files
+.vscode/
+.idea/
+
+# Docker local data directories
+postgres_data/

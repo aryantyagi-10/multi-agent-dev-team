@@ -1,0 +1,101 @@
+services:
+  postgres_db:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - agentnet
+
+  redis_cache:
+    image: redis:7-alpine
+    container_name: redis_cache
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - agentnet
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - agentnet
+
+  kafka_broker:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka_broker
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka_broker:9092,EXTERNAL://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "29092:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+    networks:
+      - agentnet
+
+  fastapi_backend:
+    build: ./backend
+    container_name: fastapi_backend
+    env_file: .env
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+      kafka_broker:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    # Runs API + the Kafka worker together via a small supervisor script
+    command: ["/bin/sh", "-c", "python -m backend.entrypoint"]
+    networks:
+      - agentnet
+
+  streamlit_frontend:
+    build: ./frontend
+    container_name: streamlit_frontend
+    env_file: .env
+    depends_on:
+      - fastapi_backend
+    ports:
+      - "8501:8501"
+    networks:
+      - agentnet
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  agentnet:
+    driver: bridge
