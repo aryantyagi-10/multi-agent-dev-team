@@ -1,6 +1,7 @@
 # Sensitive credentials & environment configurations
 .env
 *.env
+.env.example
 
 # Python build artifacts and caches
 __pycache__/
